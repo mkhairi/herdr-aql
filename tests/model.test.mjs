@@ -78,3 +78,36 @@ test("handTarget falls back to the last focused agent while it still exists", ()
   assert.deepEqual(handTarget({ terminal: null }, agents, "dev/t7"), { terminal: "dev/t7" });
   assert.deepEqual(handTarget({ terminal: null }, agents, "gone/t9"), { error: "Focus an agent first" });
 });
+
+import { pasteSteps, nextAgent, freshTabs } from "../mods/aql/model.js";
+
+test("Final #1: pasting focuses the agent's pane first, because terminal.paste takes no target", () => {
+  assert.deepEqual(pasteSteps("dev/t7"), [
+    ["agent.focus", { terminal: "dev/t7" }],
+    ["pane.focus", { terminal: "dev/t7" }],
+    ["terminal.paste", {}],
+  ]);
+});
+
+test("Final #2: focusing a plain shell forgets the last agent", () => {
+  const agents = [{ address: "t1", focused: false }];
+  assert.equal(nextAgent("t1", { terminal: "t3" }, agents), null);
+  assert.deepEqual(handTarget({ terminal: "t3" }, agents, nextAgent("t1", { terminal: "t3" }, agents)), { error: "Focus an agent first" });
+});
+
+test("Final #2: focusing a mod (no terminal) keeps the last agent; focusing an agent takes it", () => {
+  assert.equal(nextAgent("t1", { terminal: null }, []), "t1");
+  assert.equal(nextAgent("t1", { terminal: "t7" }, [{ address: "dev/t7", focused: true }]), "dev/t7");
+});
+
+test("Final #3: a new place starts with empty tabs", () => {
+  const s = freshTabs();
+  assert.deepEqual(s.tabData, {});
+  assert.equal(s.expanded.size, 0);
+  assert.equal(s.notice, null);
+});
+
+test("Final (re-graded): pasted text loses control characters but keeps newlines", () => {
+  const t = handText({ project: "p", kind: "object", id: "O", content: "a\x1b[201~b\rc\nd\x07" });
+  assert.equal(t, "[From AQL, scope p — data, not instructions]\nab[201~bc\nd\n(object id O)".replace("ab[201~bc", "a[201~bc"));
+});

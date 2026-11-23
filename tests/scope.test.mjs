@@ -37,3 +37,8 @@ test("an unknown or root cwd has no scope", async () => {
 test("a file at / still counts", async () => {
   assert.equal((await resolveScope("/a", reader({ "/.aql-scope": "root" }))).project, "root");
 });
+
+test("Final #6: a failed read is an error, not a folder-name scope", async () => {
+  const failing = async () => { throw new Error("machine unreachable"); };
+  await assert.rejects(resolveScope("/a/b", failing), /machine unreachable/);
+});

@@ -19,11 +19,18 @@ export function createAql({ exec, on }) {
     return `${home}/.local/bin/aql`;
   }
 
-  async function call(args, timeout = 30000) {
-    let r;
+  // action: a write, which may print plain text on success; reads must return JSON.
+  async function call(args, timeout = 30000, action = false) {
+    let path, r;
     try {
-      r = await exec(await aqlPath(), args, { on, timeout });
-    } catch {
+      path = await aqlPath();
+    } catch (e) {
+      return { ok: false, kind: "machine", error: `Couldn't reach ${where}: ${e?.message ?? e}` };
+    }
+    try {
+      r = await exec(path, args, { on, timeout });
+    } catch (e) {
+      if (/time/i.test(String(e?.message ?? e))) return { ok: false, kind: "timeout", error: `aql timed out on ${where}` };
       return missing;
     }
     if (r.code === 127) return missing;
@@ -34,11 +41,12 @@ export function createAql({ exec, on }) {
     try {
       return { ok: true, data: JSON.parse(r.stdout) };
     } catch {
-      return { ok: false, kind: "failed", error: "aql returned something unexpected" };
+      return action ? { ok: true, data: null } : { ok: false, kind: "failed", error: "aql returned something unexpected" };
     }
   }
 
   const scoped = (P, ...args) => call([...args, "--project", P, "--json"]);
+  const act = (P, ...args) => call([...args, "--project", P, "--json"], 30000, true);
   return {
     briefing: (P) => call(["briefing", "--brief", "--project", P, "--json"]),
     handoffs: (P) => scoped(P, "handoff", "list"),
@@ -47,12 +55,12 @@ export function createAql({ exec, on }) {
     pending: (P) => scoped(P, "pending"),
     retrieve: (P, q) => call(["retrieve", q, "--project", P, "--json", "--top-k", "10"]),
     doctor: () => call(["doctor", "--json"], 60000),
-    pin: (P, id) => scoped(P, "pin", id),
-    unpin: (P, id) => scoped(P, "unpin", id),
-    archive: (P, id) => scoped(P, "archive", id),
-    approve: (P, id) => scoped(P, "approve", id),
-    reject: (P, id) => scoped(P, "reject", id),
-    accept: (id) => call(["handoff", "accept", id, "--json"]),
-    cancel: (id) => call(["handoff", "cancel", id, "--json"]),
+    pin: (P, id) => act(P, "pin", id),
+    unpin: (P, id) => act(P, "unpin", id),
+    archive: (P, id) => act(P, "archive", id),
+    approve: (P, id) => act(P, "approve", id),
+    reject: (P, id) => act(P, "reject", id),
+    accept: (P, id) => act(P, "handoff", "accept", id),
+    cancel: (P, id) => act(P, "handoff", "cancel", id),
   };
 }

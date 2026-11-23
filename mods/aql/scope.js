@@ -8,7 +8,9 @@ export async function resolveScope(cwd, readText) {
   if (!cwd || !parts.length) return NONE;
   for (let n = parts.length; n >= 0; n--) {
     const path = `/${parts.slice(0, n).join("/")}${n ? "/" : ""}.aql-scope`;
-    const text = await readText(path).catch(() => null);
+    // readText gives null for a missing file; a rejection is a real failure (an unreachable
+    // machine), and guessing the folder name then would show the wrong project as if right.
+    const text = await readText(path);
     const project = String(text ?? "").split("\n").map((l) => l.trim()).find(Boolean);
     if (project) return { project, via: "file", path };
   }

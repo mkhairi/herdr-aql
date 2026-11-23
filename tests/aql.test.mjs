@@ -65,7 +65,7 @@ test("each action builds the command the CLI expects", async () => {
   const aql = createAql({ exec: f.exec, on: null });
   await aql.handoffs("p"); await aql.dying("p"); await aql.retention("p"); await aql.pending("p"); await aql.doctor();
   await aql.pin("p", "I"); await aql.unpin("p", "I"); await aql.archive("p", "I");
-  await aql.approve("p", "I"); await aql.reject("p", "I"); await aql.accept("H"); await aql.cancel("H");
+  await aql.approve("p", "I"); await aql.reject("p", "I"); await aql.accept("p", "H"); await aql.cancel("p", "H");
   assert.deepEqual(f.calls.filter((c) => c.command).map((c) => c.args.join(" ")), [
     "handoff list --project p --json",
     "dying --project p --json",
@@ -77,8 +77,8 @@ test("each action builds the command the CLI expects", async () => {
     "archive I --project p --json",
     "approve I --project p --json",
     "reject I --project p --json",
-    "handoff accept H --json",
-    "handoff cancel H --json",
+    "handoff accept H --project p --json",
+    "handoff cancel H --project p --json",
   ]);
 });
 
@@ -86,4 +86,32 @@ test("doctor gets a longer timeout", async () => {
   const f = fakeExec(ok({ checks: [] }));
   await createAql({ exec: f.exec, on: null }).doctor();
   assert.equal(f.calls.find((c) => c.command).opts.timeout, 60000);
+});
+
+test("Final #5: an unreachable machine is not reported as aql missing", async () => {
+  const exec = async () => { throw new Error("machine unavailable"); };
+  const r = await createAql({ exec, on: "dev" }).briefing("p");
+  assert.equal(r.kind, "machine");
+  assert.equal(r.error, "Couldn't reach dev: machine unavailable");
+});
+
+test("Final #5: a timeout is reported as a timeout", async () => {
+  const exec = async (c) => { if (c === "sh") return { code: 0, stdout: "/h", stderr: "" }; throw new Error("timed out after 30000 ms"); };
+  const r = await createAql({ exec, on: null }).briefing("p");
+  assert.deepEqual(r, { ok: false, kind: "timeout", error: "aql timed out on this Mac" });
+});
+
+test("Final #7: accept and cancel name the handoff's project", async () => {
+  const f = fakeExec(ok({}));
+  const aql = createAql({ exec: f.exec, on: null });
+  await aql.accept("p", "H"); await aql.cancel("p", "H");
+  assert.deepEqual(f.calls.filter((c) => c.command).map((c) => c.args.join(" ")), [
+    "handoff accept H --project p --json",
+    "handoff cancel H --project p --json",
+  ]);
+});
+
+test("Final (declined-to-judge): an action that succeeds without JSON is still a success", async () => {
+  const f = fakeExec(() => ({ code: 0, stdout: "pinned 01ABC\n", stderr: "" }));
+  assert.deepEqual(await createAql({ exec: f.exec, on: null }).pin("p", "X"), { ok: true, data: null });
 });

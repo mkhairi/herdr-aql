@@ -5,7 +5,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, run, spaces, agents, focused, shared, setShared, theme, layout, openOverlay, closeOverlay, nextCommand, readTextFile, props as blockProps } from "herdr";
 import { resolveScope } from "./scope.js";
-import { splitHandoffs, hasDot, liveDying, ago, handText, handTarget, nextPlace } from "./model.js";
+import { splitHandoffs, hasDot, liveDying, ago, handText, handTarget, nextPlace, pasteSteps, nextAgent, freshTabs } from "./model.js";
 import { createAql } from "./aql.js";
 
 const PANEL = "aql-panel";
@@ -100,8 +100,7 @@ export default class Aql extends View {
     if (this.loading) return;
     const w = nextPlace(this.last, where()), key = placeKey(w), bump = shared(BUMP) ?? 0;
     this.last = w;
-    const a = agents().find((x) => x.focused);
-    if (a) this.lastAgent = a.address;
+    this.lastAgent = nextAgent(this.lastAgent, focused(), agents());
     const moved = key !== this.place, bumped = bump !== this.bump;
     const due = Date.now() - this.at > POLL && (dotOnly || this.shown());
     if (moved || bumped || due) { this.bump = bump; this.refresh(cx, w, dotOnly); }
@@ -110,9 +109,19 @@ export default class Aql extends View {
   async refresh(cx, w = this.last ?? where(), dotOnly = false) {
     this.loading = true;
     try {
-      if (placeKey(w) !== this.place) { this.place = placeKey(w); this.data = {}; }
+      if (placeKey(w) !== this.place) {
+        this.place = placeKey(w); this.data = {};
+        if (!dotOnly) Object.assign(this, freshTabs());
+      }
       this.on = w.on; this.cwd = w.cwd;
-      this.scope = await loadScope(w);
+      try {
+        this.scope = await loadScope(w);
+      } catch (e) {
+        // Not the folder name: an unreadable scope must not look like a real one.
+        this.scope = null; this.dot = false;
+        this.error = { kind: "machine", error: `Couldn't read this folder's .aql-scope on ${w.on ?? "this Mac"}: ${e?.message ?? e}` };
+        return;
+      }
       const P = this.scope.project;
       if (!P) { this.error = null; this.dot = false; return; }
       const aql = aqlOn(w.on);
@@ -142,16 +151,22 @@ export default class Aql extends View {
   async search(cx) {
     const q = this.query.value().trim(), P = this.scope?.project;
     if (!q || !P) return;
+    const place = this.place;
     this.tabData.search = { q, busy: true };
     cx.notify();
-    this.tabData.search = { q, result: await aqlOn(this.on).retrieve(P, q) };
+    const result = await aqlOn(this.on).retrieve(P, q);
+    if (this.place !== place) return; // the project changed meanwhile: these hits aren't its
+    this.tabData.search = { q, result };
     cx.notify();
   }
 
   async doctor(cx) {
+    const place = this.place;
     this.tabData.doctor = { busy: true };
     cx.notify();
-    this.tabData.doctor = { result: await aqlOn(this.on).doctor() };
+    const result = await aqlOn(this.on).doctor();
+    if (this.place !== place) return;
+    this.tabData.doctor = { result };
     cx.notify();
   }
 
@@ -168,9 +183,9 @@ export default class Aql extends View {
     const target = handTarget(focused(), agents(), this.lastAgent);
     if (target.error) return;
     const text = handText({ project: this.scope.project, ...item });
-    const r = await exec("sh", ["-c", 'printf %s "$1" | pbcopy', "sh", text]);
+    const r = await exec("sh", ["-c", 'printf %s "$1" | pbcopy', "sh", text]).catch(() => ({ code: 1 }));
     if (r.code !== 0) { this.notice = { ok: false, text: "Couldn't copy to the clipboard" }; cx.notify(); return; }
-    run("terminal.paste", { terminal: target.terminal });
+    for (const [name, args] of pasteSteps(target.terminal)) run(name, args);
     this.notice = { ok: true, text: "Pasted into the agent's prompt — review it, then press Enter" };
     cx.notify();
   }
@@ -350,7 +365,7 @@ export default class Aql extends View {
       .child(h_flex().gap(6).flex_wrap()
         .child(button(t, `hand-${h.id}`, "Hand to agent", (cx) => later(cx, (cx) => this.hand(cx, { kind: "handoff", ...h })),
           { disabled: Boolean(target.error), tip: target.error ?? "Pastes via the clipboard; you press Enter" }))
-        .child(button(t, `accept-${h.id}`, "Accept", (cx) => later(cx, (cx) => this.act(cx, "Handoff accepted", () => aqlOn(this.on).accept(h.id)))))
+        .child(button(t, `accept-${h.id}`, "Accept", (cx) => later(cx, (cx) => this.act(cx, "Handoff accepted", () => aqlOn(this.on).accept(this.scope.project, h.id)))))
         .child(button(t, `cancel-${h.id}`, "Cancel…", () => this.confirm("cancel", h), { danger: true })));
   }
 
@@ -383,11 +398,17 @@ export default class Aql extends View {
     const what = p.action === "cancel" ? "Cancel this handoff?" : "Archive this?";
     const note = p.action === "cancel" ? "It stays in AQL's history but no agent will pick it up." : "It leaves search and briefings now.";
     const close = () => closeOverlay(p.overlay);
-    const go = (cx) => later(cx, async () => {
-      const aql = aqlOn(p.on ?? null);
-      const r = p.action === "cancel" ? await aql.cancel(p.id) : await aql.archive(p.project, p.id);
-      if (r.ok) { setShared(BUMP, Date.now()); close(); } else { this.failed = r.error; cx.notify(); }
-    });
+    // The task's own cx, not the click's: a click's cx is stale after an await.
+    const go = (cx) => {
+      if (this.busy) return;
+      this.busy = true; this.failed = null; cx.notify();
+      later(cx, async (cx) => {
+        const aql = aqlOn(p.on ?? null);
+        const r = p.action === "cancel" ? await aql.cancel(p.project, p.id) : await aql.archive(p.project, p.id);
+        this.busy = false;
+        if (r.ok) { setShared(BUMP, Date.now()); close(); } else { this.failed = r.error; cx.notify(); }
+      });
+    };
     return v_flex().id("aql-confirm").size_full().p(16).gap(10).bg(t.popover)
       .child(div().text_size(14).text_color(t.foreground).child(what))
       .child(div().id("confirm-text").flex_1().min_h(0).overflow_y_scrollbar().p(8).rounded(6).bg(t.surface).text_size(12).text_color(t.muted)
@@ -396,7 +417,7 @@ export default class Aql extends View {
       .when(Boolean(this.failed), (el) => el.child(banner(t, this.failed)))
       .child(h_flex().gap(8).justify_end()
         .child(button(t, "keep", "Keep it", () => close()))
-        .child(button(t, "go", p.action === "cancel" ? "Cancel handoff" : "Archive", go, { danger: true })));
+        .child(button(t, "go", this.busy ? "Working…" : p.action === "cancel" ? "Cancel handoff" : "Archive", go, { danger: true, disabled: Boolean(this.busy) })));
   }
 }
 
