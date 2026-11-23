@@ -83,8 +83,10 @@ export default class Aql extends View {
     cx.spawn(async (cx) => { for (;;) { if ((await nextCommand()) === "focus") this.handle.focus(); cx.notify(); } });
   }
 
-  // Filled in by the other tabs (Search, Decay, Health).
-  initTabs(_cx) {}
+  initTabs(_cx) {
+    this.query = InputState.new({ placeholder: "Search this project's memory" });
+    this.tabData = {};
+  }
 
   shown() {
     if (this.role !== "panel") return true;
@@ -125,8 +127,33 @@ export default class Aql extends View {
     }
   }
 
-  // Filled in by the other tabs.
-  async refreshTab(_cx, _aql, _P) {}
+  // The open tab's own reads. Search runs on Enter, doctor on its button: neither refreshes here.
+  async refreshTab(cx, aql, P) {
+    if (!P) return;
+    if (this.tab === "decay") {
+      const [dying, retention] = await Promise.all([aql.dying(P), aql.retention(P)]);
+      this.tabData.decay = { dying, retention };
+    } else if (this.tab === "health") {
+      this.tabData.pending = await aql.pending(P);
+    }
+    cx.notify();
+  }
+
+  async search(cx) {
+    const q = this.query.value().trim(), P = this.scope?.project;
+    if (!q || !P) return;
+    this.tabData.search = { q, busy: true };
+    cx.notify();
+    this.tabData.search = { q, result: await aqlOn(this.on).retrieve(P, q) };
+    cx.notify();
+  }
+
+  async doctor(cx) {
+    this.tabData.doctor = { busy: true };
+    cx.notify();
+    this.tabData.doctor = { result: await aqlOn(this.on).doctor() };
+    cx.notify();
+  }
 
   // Runs an action, says how it went, and refreshes everything.
   async act(cx, what, fn) {
@@ -212,8 +239,75 @@ export default class Aql extends View {
     return this.otherTab(t);
   }
 
-  // Filled in by the other tabs.
-  otherTab(_t) { return div(); }
+  otherTab(t) {
+    if (this.tab === "search") return this.searchTab(t);
+    if (this.tab === "decay") return this.decayTab(t);
+    return this.healthTab(t);
+  }
+
+  failedOr(t, r, fn) {
+    if (!r) return div().text_size(12).text_color(t.muted).child("…");
+    return r.ok ? fn(r.data) : banner(t, r.error);
+  }
+
+  searchTab(t) {
+    const s = this.tabData.search;
+    const box = h_flex().id("q").h(30).px(8).items_center().rounded(6).border(1).border_color(t.border).bg(t.surface)
+      .on_key_down((e, cx) => { if (e.key === "enter") later(cx, (cx) => this.search(cx)); })
+      .child(Input.new(this.query).flex_1().min_w(0).h_full().text_size(12).text_color(t.foreground));
+    const col = v_flex().gap(10).child(box);
+    if (!s) return col.child(label(t, "Press Enter to search"));
+    if (s.busy) return col.child(label(t, `Searching “${s.q}”…`));
+    return col.child(this.failedOr(t, s.result, (d) => {
+      const hits = d.hits ?? [];
+      if (!hits.length) return div().text_size(12).text_color(t.muted).child(`Nothing for “${s.q}”`);
+      return v_flex().gap(6).children(hits.map((h) => this.objectRow(t, h, { score: h.score ?? null })));
+    }));
+  }
+
+  decayTab(t) {
+    const d = this.tabData.decay;
+    if (!d) return div().text_size(12).text_color(t.muted).child("…");
+    const col = v_flex().gap(10);
+    if (d.retention?.ok) {
+      const hist = d.retention.data.histogram ?? {}, b = hist.buckets ?? [], w = hist.bucket_width ?? 0.05;
+      const cold = d.retention.data.cold_threshold ?? 0.2;
+      const below = b.reduce((n, c, i) => n + ((i + 1) * w <= cold ? c : 0), 0);
+      col.child(label(t, `${hist.total ?? 0} objects · ${below} below ${Math.round(cold * 100)}% retention`));
+    }
+    return col.child(this.failedOr(t, d.dying, (data) => {
+      const rows = liveDying(data.dying);
+      if (!rows.length) return div().text_size(12).text_color(t.muted).child("Nothing real is decaying");
+      return v_flex().gap(6).children(rows.map((o) => this.objectRow(t, o, { decay: true })));
+    }));
+  }
+
+  healthTab(t) {
+    const d = this.tabData.doctor, pending = this.tabData.pending;
+    const col = v_flex().gap(10)
+      .child(h_flex().gap(8).items_center()
+        .child(button(t, "run-doctor", d?.busy ? "Running…" : "Run doctor", (cx) => later(cx, (cx) => this.doctor(cx)), { disabled: Boolean(d?.busy) }))
+        .child(label(t, "Checks the server, embedder, capture and backlog")));
+    if (d?.result) col.child(this.failedOr(t, d.result, (data) => v_flex().gap(6).children((data.checks ?? []).map((c, i) => {
+      const lvl = String(c.level ?? "").toLowerCase(), bad = lvl !== "ok";
+      return v_flex().id(`chk-${i}`).gap(2).p(8).rounded(6).bg(t.surface).border(1).border_color(t.border)
+        .child(h_flex().gap(6)
+          .child(div().text_size(11).text_color(bad ? t.blocked : t.ansi2).child(lvl === "ok" ? "ok" : lvl.toUpperCase()))
+          .child(div().text_size(12).text_color(t.foreground).child(c.name ?? "")))
+        .child(div().text_size(11).text_color(t.muted).child(c.detail ?? ""))
+        .when(Boolean(c.remedy), (el) => el.child(div().text_size(11).text_color(t.dim).child(`→ ${c.remedy}`)));
+    }))));
+    if (pending?.ok && (pending.data.items ?? []).length) {
+      const P = this.scope.project;
+      col.child(label(t, `PENDING APPROVAL · ${pending.data.total ?? pending.data.items.length}`))
+        .children(pending.data.items.map((o) => v_flex().id(`pa-${o.id}`).gap(6).p(8).rounded(6).bg(t.surface).border(1).border_color(t.border)
+          .child(div().text_size(12).text_color(t.foreground).child(o.content ?? ""))
+          .child(h_flex().gap(6)
+            .child(button(t, `ap-${o.id}`, "Approve", (cx) => later(cx, (cx) => this.act(cx, "Approved", () => aqlOn(this.on).approve(P, o.id)))))
+            .child(button(t, `rj-${o.id}`, "Reject", (cx) => later(cx, (cx) => this.act(cx, "Rejected", () => aqlOn(this.on).reject(P, o.id))), { danger: true })))));
+    }
+    return col;
+  }
 
   scopeTab(t) {
     const h = this.data.handoffs, b = this.data.briefing;
