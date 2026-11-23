@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+jsconfig.json
+gpui-kit.d.ts
+.superpowers/
