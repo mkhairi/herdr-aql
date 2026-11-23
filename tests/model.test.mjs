@@ -63,3 +63,18 @@ test("handTarget refuses when no agent is focused", () => {
   assert.deepEqual(handTarget({ terminal: "t3" }, [{ address: "t1", focused: false }]), { error: "Focus an agent first" });
   assert.deepEqual(handTarget(null, []), { error: "Focus an agent first" });
 });
+
+import { nextPlace } from "../mods/aql/model.js";
+
+test("nextPlace keeps the last terminal's folder when focus moves to a pane with none", () => {
+  const prev = { on: "dev", cwd: "/x/aql" };
+  assert.deepEqual(nextPlace(prev, { on: null, cwd: null }), prev);
+  assert.deepEqual(nextPlace(prev, { on: "home", cwd: "/y" }), { on: "home", cwd: "/y" });
+  assert.deepEqual(nextPlace(null, { on: null, cwd: null }), { on: null, cwd: null });
+});
+
+test("handTarget falls back to the last focused agent while it still exists", () => {
+  const agents = [{ address: "t1", focused: false }, { address: "dev/t7", focused: false }];
+  assert.deepEqual(handTarget({ terminal: null }, agents, "dev/t7"), { terminal: "dev/t7" });
+  assert.deepEqual(handTarget({ terminal: null }, agents, "gone/t9"), { error: "Focus an agent first" });
+});

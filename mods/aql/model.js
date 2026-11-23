@@ -36,8 +36,16 @@ export function handText({ project, kind, id, summary, content, next_steps }) {
   return lines.join("\n");
 }
 
-// The focused agent's terminal, or why there is none.
-export function handTarget(focused, agents) {
-  const agent = focused && (agents ?? []).find((a) => a.focused);
+// The focused agent's terminal, else the last one focused while it still runs (clicking an AQL
+// pane takes focus off the agent), else why there is none.
+export function handTarget(focused, agents, last = null) {
+  const list = agents ?? [];
+  const agent = (focused && list.find((a) => a.focused)) || (last && list.find((a) => a.address === last));
   return agent ? { terminal: agent.address } : { error: "Focus an agent first" };
+}
+
+// Where the panel looks next: focusing something with no folder (the panel itself, a mod pane)
+// keeps the last terminal's place instead of losing the scope.
+export function nextPlace(prev, cur) {
+  return cur?.cwd || !prev ? cur : prev;
 }
