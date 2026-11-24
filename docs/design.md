@@ -52,7 +52,7 @@ review surface for the focused agent's scope, not another way to write memories.
 ## Approaches considered
 
 - **A. Panel in the current window (chosen).** Toggle in the tab bar + a hideable column on the
-  right of the user's current layout (`<layout>`, a clone, so editable). One click at session
+  right of the user's current layout (a clone, so editable). One click at session
   start, persists across spaces. Trade-off: shares the right side with the layout's other panels.
 - B. Separate layout — rejected: switching layouts at session start is friction.
 - C. Pane only — rejected as the main home (re-opened every session, no persistent toggle), but
@@ -67,14 +67,14 @@ token stays only in `client.env`.
 
 - Mod `~/.config/herdr-app/mods/aql/` (name is free). Source of truth kept in
   `/Volumes/Storage/Developments/herdr-aql/` and copied in; this doc lives there too.
-- Layout `<layout>.json` gets two nodes, nothing else changes:
+- The user's layout gets two nodes, nothing else changes:
   - a toggle block in the tab bar row → `{ "mod": "aql", "props": { "role": "toggle" } }`
     (shows "AQL" plus a dot when the shown scope has an open, non-stale **agent-written**
     handoff; auto handoffs never light it);
   - a column `aql-panel` beside `panel` (hidden by default, ~380 px, min 320, max 640) holding the
     `aql` block. Kept out of the per-space `panel` stack so it doesn't close on space switch.
-  - The tab bar row is the `tabs` block today; the toggle goes beside it as its own block
-    (builder: wrap in a row if needed). the layout's own nodes and keys stay untouched.
+  - The tab bar is a single block today; the toggle goes beside it as its own block
+    (builder: wrap in a row if needed). The layout's own nodes and keys stay untouched.
 - Key: `cmd-shift-a` toggles the panel in this layout (`layout.toggle {id:"aql-panel"}`), and in
   any other layout splits a pane with the mod. Builder confirms the key is free.
 

@@ -24,7 +24,7 @@ The panel never writes memories. Writing stays with agents, through MCP.
 
 ## Requirements
 
-- Herdr (tested on 0.1.17, macOS) with a layout, or any layout you're willing to patch.
+- Herdr (tested on 0.1.17, macOS) and a layout you can edit (a clone of a built-in one).
 - `aql` at `~/.local/bin/aql` on each machine you use it on, set up so that `aql briefing` works
   from a shell (it reads `~/.config/aql/client.env` itself). Tested with 0.9.28.
 
@@ -40,7 +40,7 @@ Herdr reloads it within a second.
 Then add the toggle, the panel column and the keys to your layout. See
 [layout-patch.md](layout-patch.md). Once that's done:
 
-- `⌘⇧A` in the layout shows or hides the panel.
+- `⌘⇧A` in the patched layout shows or hides the panel.
 - `⌘⇧A` in any other layout opens the panel as a pane.
 
 ## How the scope is chosen
@@ -68,5 +68,5 @@ The tests cover the parts that don't depend on Herdr: `scope.js`, `model.js` and
 
 ## Remove
 
-Restore `layouts/<layout>.json.bak-aql` and `keys.json.bak-aql` in `~/.config/herdr-app/`, then
+Restore your layout's `.bak-aql` backup and `keys.json.bak-aql` in `~/.config/herdr-app/`, then
 delete `~/.config/herdr-app/mods/aql`.

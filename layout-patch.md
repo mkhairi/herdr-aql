@@ -1,14 +1,18 @@
-# Layout and key patch (re-apply after a layout update)
+# Layout and key patch
 
-In `~/.config/herdr-app/layouts/<layout>.json` (backup: `<layout>.json.bak-aql`):
+`<layout>` below is the name of the layout you add the panel to: its file is
+`~/.config/herdr-app/layouts/<layout>.json`. Back it up first (e.g. `<layout>.json.bak-aql`), and
+re-apply this patch whenever the layout file is replaced.
 
-1. Inside `work`, the `tabs` block becomes a row:
+In `<layout>.json`:
+
+1. Inside the work column, the tab bar block becomes a row:
    ```json
    { "id": "tabs-row", "type": "row", "size": {"px": 42}, "resizable": false, "children": [
-     <the tabs block, with "size": {"weight": 1}>,
+     <the tab bar block, with "size": {"weight": 1}>,
      { "id": "aql-toggle", "type": "block", "content": {"mod": "aql", "props": {"role": "toggle"}}, "size": {"px": 88}, "window_drag": true } ] }
    ```
-2. Appended to `work-body.children`:
+2. Appended to the children of the row that holds the terminal (beside any other side panel):
    ```json
    { "id": "aql-panel", "type": "column", "hidden": true, "size": {"px": 380}, "min": 320, "max": 640,
      "children": [ { "id": "aql", "type": "block", "content": {"mod": "aql", "props": {"role": "panel"}} } ] }
