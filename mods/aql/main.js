@@ -1,7 +1,7 @@
 // AQL for Herdr: what AQL knows about the focused agent's project, led by its open handoff.
 // Roles (props.role): "toggle", the tab-bar button; "panel", the layout column; "confirm", a
 // dialog; none, a pane. Views only: the logic lives in scope.js, model.js and aql.js.
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, run, spaces, agents, focused, shared, setShared, theme, layout, openOverlay, closeOverlay, nextCommand, readTextFile, props as blockProps } from "herdr";
 import { resolveScope } from "./scope.js";
@@ -222,11 +222,12 @@ export default class Aql extends View {
   renderToggle(t) {
     const node = find(layout(), PANEL), on = Boolean(node && !node.hidden);
     return h_flex().size_full().pr(10).items_center().justify_end().bg(t.chrome).border_b(1).border_color(t.border)
-      .child(h_flex().id("aql-toggle").h(26).px(8).gap(6).flex_none().items_center().rounded(6).text_size(12)
+      .child(h_flex().id("aql-toggle").h(26).px(8).gap(5).flex_none().items_center().rounded(6).text_size(12)
         .bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .tooltip(this.dot ? "An agent left a handoff here" : "AQL memory for this project")
         .cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
         .on_click(() => run("layout.toggle", { id: PANEL }))
+        .child(svg("mods/aql/brain.svg").size(14))
         .child("AQL")
         .when(this.dot, (el) => el.child(div().w(6).h(6).rounded(3).bg(t.accent))));
   }

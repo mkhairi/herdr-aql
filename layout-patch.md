@@ -6,7 +6,7 @@ In `~/.config/herdr-app/layouts/<layout>.json` (backup: `<layout>.json.bak-aql`)
    ```json
    { "id": "tabs-row", "type": "row", "size": {"px": 42}, "resizable": false, "children": [
      <the tabs block, with "size": {"weight": 1}>,
-     { "id": "aql-toggle", "type": "block", "content": {"mod": "aql", "props": {"role": "toggle"}}, "size": {"px": 64}, "window_drag": true } ] }
+     { "id": "aql-toggle", "type": "block", "content": {"mod": "aql", "props": {"role": "toggle"}}, "size": {"px": 88}, "window_drag": true } ] }
    ```
 2. Appended to `work-body.children`:
    ```json
