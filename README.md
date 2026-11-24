@@ -30,6 +30,16 @@ The panel never writes memories. Writing stays with agents, through MCP.
 
 ## Install
 
+### With an agent
+
+In Herdr, ask your coding agent:
+
+```text
+Read ~/.config/herdr-app/AGENTS.md, then add this mod and patch my current layout per its layout-patch.md: https://github.com/mkhairi/herdr-aql/tree/main/mods/aql
+```
+
+### By hand
+
 ```sh
 ./install.sh
 ```
