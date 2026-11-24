@@ -203,12 +203,20 @@ export default class Aql extends View {
     const t = theme();
     if (this.role === "toggle") return this.renderToggle(t);
     if (this.role === "confirm") return this.renderConfirm(t);
-    return v_flex().id("aql").track_focus(this.handle).size_full().min_h(0).bg(t.background).p(12).gap(10)
+    const content = v_flex().flex_1().min_h(0).p(12).gap(10)
       .child(this.header(t))
       .child(this.tabs(t))
       .when(Boolean(this.notice), (el) => el.child(div().flex_none().text_size(12).text_color(this.notice.ok ? t.muted : t.blocked).child(this.notice.text)))
       .when(Boolean(this.error), (el) => el.child(banner(t, this.error.kind === "unreachable" ? `AQL server unreachable — ${this.error.error}` : this.error.error)))
       .child(div().id("aql-body").flex_1().min_h(0).overflow_y_scrollbar().when(Boolean(this.error), (el) => el.opacity(0.5)).child(this.body(t)));
+    // A pane already has Herdr's frame; the panel draws its own, like the Files and Changes panels.
+    if (this.role !== "panel") return content.id("aql").track_focus(this.handle).size_full().bg(t.background);
+    return v_flex().id("aql").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden()
+      .bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
+      .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
+        .child(div().font_semibold().child("AQL"))
+        .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim).child(this.on ?? "this Mac")))
+      .child(content);
   }
 
   renderToggle(t) {
