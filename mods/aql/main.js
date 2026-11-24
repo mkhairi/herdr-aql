@@ -5,7 +5,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, run, spaces, agents, focused, shared, setShared, theme, layout, openOverlay, closeOverlay, nextCommand, readTextFile, props as blockProps } from "herdr";
 import { resolveScope } from "./scope.js";
-import { splitHandoffs, hasDot, liveDying, ago, handText, handTarget, nextPlace, pasteSteps, nextAgent, freshTabs } from "./model.js";
+import { splitHandoffs, hasDot, liveDying, ago, handText, handTarget, nextPlace, pasteSteps, nextAgent, freshTabs, belowCold, mergeDecay } from "./model.js";
 import { createAql } from "./aql.js";
 
 const PANEL = "aql-panel";
@@ -141,7 +141,7 @@ export default class Aql extends View {
     if (!P) return;
     if (this.tab === "decay") {
       const [dying, retention] = await Promise.all([aql.dying(P), aql.retention(P)]);
-      this.tabData.decay = { dying, retention };
+      this.tabData.decay = mergeDecay(this.tabData.decay, { dying, retention });
     } else if (this.tab === "health") {
       this.tabData.pending = await aql.pending(P);
     }
@@ -276,7 +276,7 @@ export default class Aql extends View {
     return col.child(this.failedOr(t, s.result, (d) => {
       const hits = d.hits ?? [];
       if (!hits.length) return div().text_size(12).text_color(t.muted).child(`Nothing for “${s.q}”`);
-      return v_flex().gap(6).children(hits.map((h) => this.objectRow(t, h, { score: h.score ?? null })));
+      return v_flex().gap(6).children(hits.map((h) => this.objectRow(t, h, { at: "s", score: h.score ?? null })));
     }));
   }
 
@@ -285,16 +285,16 @@ export default class Aql extends View {
     if (!d) return div().text_size(12).text_color(t.muted).child("…");
     const col = v_flex().gap(10);
     if (d.retention?.ok) {
-      const hist = d.retention.data.histogram ?? {}, b = hist.buckets ?? [], w = hist.bucket_width ?? 0.05;
-      const cold = d.retention.data.cold_threshold ?? 0.2;
-      const below = b.reduce((n, c, i) => n + ((i + 1) * w <= cold ? c : 0), 0);
-      col.child(label(t, `${hist.total ?? 0} objects · ${below} below ${Math.round(cold * 100)}% retention`));
+      const r = d.retention.data, cold = r.cold_threshold ?? 0.2;
+      col.child(label(t, `${r.histogram?.total ?? 0} objects · ${belowCold(r)} below ${Math.round(cold * 100)}% retention`));
     }
-    return col.child(this.failedOr(t, d.dying, (data) => {
+    // A failed refresh keeps the last rows, greyed, under the error.
+    if (d.stale) col.child(banner(t, `Couldn't refresh — showing the last result. ${d.stale}`));
+    return col.child(div().when(Boolean(d.stale), (el) => el.opacity(0.5)).child(this.failedOr(t, d.dying, (data) => {
       const rows = liveDying(data.dying);
       if (!rows.length) return div().text_size(12).text_color(t.muted).child("Nothing real is decaying");
-      return v_flex().gap(6).children(rows.map((o) => this.objectRow(t, o, { decay: true })));
-    }));
+      return v_flex().gap(6).children(rows.map((o) => this.objectRow(t, o, { at: "d", decay: true })));
+    })));
   }
 
   healthTab(t) {
@@ -339,11 +339,11 @@ export default class Aql extends View {
         .when(this.showAuto, (el) => el.children(auto.map((x) => this.handoffCard(t, x))))));
     const pins = b?.pinned ?? [];
     col.child(v_flex().gap(6).child(label(t, "PINNED RULES"))
-      .child(pins.length ? v_flex().gap(6).children(pins.map((o) => this.objectRow(t, o, { pin: true }))) : div().text_size(12).text_color(t.muted).child(b ? "None pinned" : "…")));
+      .child(pins.length ? v_flex().gap(6).children(pins.map((o) => this.objectRow(t, o, { at: "pin", pin: true }))) : div().text_size(12).text_color(t.muted).child(b ? "None pinned" : "…")));
     if (b?.counts) col.child(v_flex().gap(4).child(label(t, "COUNTS"))
       .child(div().text_size(12).text_color(t.muted).child(Object.entries(b.counts).map(([k, n]) => `${n} ${k}`).join(" · "))));
     if (b?.review_due?.length) col.child(v_flex().gap(6).child(label(t, "REVIEW DUE"))
-      .children(b.review_due.map((o) => this.objectRow(t, o, {}))));
+      .children(b.review_due.map((o) => this.objectRow(t, o, { at: "rv" }))));
     return col;
   }
 
@@ -369,26 +369,27 @@ export default class Aql extends View {
         .child(button(t, `cancel-${h.id}`, "Cancel…", () => this.confirm("cancel", h), { danger: true })));
   }
 
-  // A knowledge object row. o: { pin: show Unpin, decay: show retention, Pin and Archive }.
+  // A knowledge object row. opts: { at: the section, so ids stay unique when one object shows
+  // twice; pin: show Unpin; decay: show retention, Pin and Archive }.
   objectRow(t, o, opts) {
-    const open = this.expanded.has(o.id), text = o.content ?? "";
+    const open = this.expanded.has(o.id), text = o.content ?? "", k = `${opts.at}-${o.id}`;
     const target = handTarget(focused(), agents(), this.lastAgent);
     const P = this.scope.project;
-    return v_flex().id(`o-${o.id}`).gap(6).p(8).rounded(6).bg(t.surface).border(1).border_color(t.border)
+    return v_flex().id(`o-${k}`).gap(6).p(8).rounded(6).bg(t.surface).border(1).border_color(t.border)
       .child(h_flex().gap(6).items_center()
         .child(label(t, o.ko_type ?? o.type ?? "object"))
         .when(opts.decay, (el) => el.child(label(t, `· ${Math.round((o.retention ?? 0) * 100)}% retention`)))
         .when(opts.score != null, (el) => el.child(label(t, `· score ${Number(opts.score).toFixed(2)}`))))
-      .child(div().id(`c-${o.id}`).text_size(12).text_color(t.foreground).cursor_pointer()
+      .child(div().id(`c-${k}`).text_size(12).text_color(t.foreground).cursor_pointer()
         .on_click((_e, cx) => { open ? this.expanded.delete(o.id) : this.expanded.add(o.id); cx.notify(); })
         .child(open || text.length <= 160 ? text : `${text.slice(0, 160)}…`))
       .child(h_flex().gap(6).flex_wrap()
-        .child(button(t, `oh-${o.id}`, "Hand to agent", (cx) => later(cx, (cx) => this.hand(cx, { kind: "object", id: o.id, content: text })),
+        .child(button(t, `oh-${k}`, "Hand to agent", (cx) => later(cx, (cx) => this.hand(cx, { kind: "object", id: o.id, content: text })),
           { disabled: Boolean(target.error), tip: target.error ?? "Pastes via the clipboard; you press Enter" }))
         .child(opts.pin || o.pinned
-          ? button(t, `up-${o.id}`, "Unpin", (cx) => later(cx, (cx) => this.act(cx, "Unpinned", () => aqlOn(this.on).unpin(P, o.id))))
-          : button(t, `p-${o.id}`, "Pin", (cx) => later(cx, (cx) => this.act(cx, "Pinned", () => aqlOn(this.on).pin(P, o.id)))))
-        .when(Boolean(opts.decay), (el) => el.child(button(t, `ar-${o.id}`, "Archive…", () => this.confirm("archive", o), { danger: true }))));
+          ? button(t, `up-${k}`, "Unpin", (cx) => later(cx, (cx) => this.act(cx, "Unpinned", () => aqlOn(this.on).unpin(P, o.id))))
+          : button(t, `p-${k}`, "Pin", (cx) => later(cx, (cx) => this.act(cx, "Pinned", () => aqlOn(this.on).pin(P, o.id)))))
+        .when(Boolean(opts.decay), (el) => el.child(button(t, `ar-${k}`, "Archive…", () => this.confirm("archive", o), { danger: true }))));
   }
 
   // ---- The confirm dialog ----

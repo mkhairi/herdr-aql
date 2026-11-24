@@ -68,3 +68,17 @@ export function nextAgent(prev, focused, agents) {
 export function freshTabs() {
   return { tabData: {}, expanded: new Set(), notice: null };
 }
+
+// How many objects sit below the cold threshold: the server's count, else summed from buckets.
+export function belowCold(data) {
+  const hist = data?.histogram ?? {};
+  if (typeof hist.below_cold === "number") return hist.below_cold;
+  const w = hist.bucket_width ?? 0.05, cold = data?.cold_threshold ?? 0.2;
+  return (hist.buckets ?? []).reduce((n, c, i) => n + ((i + 1) * w <= cold + 1e-9 ? c : 0), 0);
+}
+
+// A failed Decay refresh keeps the last good rows, marked stale, instead of wiping them.
+export function mergeDecay(prev, next) {
+  if (next.dying?.ok || !prev?.dying?.ok) return next;
+  return { dying: prev.dying, retention: next.retention?.ok ? next.retention : prev.retention, stale: next.dying.error };
+}
